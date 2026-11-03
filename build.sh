@@ -20,4 +20,4 @@ fi
 # change pwd
 cd $SCRIPT_DIR
 
-cargo build --release --features sqlite-local
+cargo build --release --features sqlite-local $@
