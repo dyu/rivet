@@ -318,7 +318,7 @@ impl FilesystemStore {
 			let mut cursor = None;
 			loop {
 				let rows = before
-					.scan(
+					.scan_for_apply(
 						&range,
 						cursor.as_ref(),
 						self.batch_rows.min(self.config.max_rows),
@@ -537,5 +537,3 @@ impl TransactionReader for ReplicaTransactionReader<'_> {
 		})
 	}
 }
-
-

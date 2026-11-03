@@ -44,7 +44,6 @@ pub use tx::{
 	TransactionCoordinatorClosedError, TransactionExpiredError, TransactionInvalidArgumentError,
 	TransactionQueueFullError, TransactionTerminalError, TransactionUnknownError,
 };
-
 use tx::{TransactionCoordinator, run_detached_transaction_task};
 
 #[cfg(feature = "sqlite-local")]
@@ -351,8 +350,6 @@ impl SqliteDb {
 	pub(crate) fn set_profiling_config(&mut self, config: crate::SqliteProfilingConfig) {
 		self.profiling = Arc::new(profiling::SqliteProfilingState::new(config));
 	}
-
-	
 
 	pub fn is_enabled(&self) -> bool {
 		self.enabled
@@ -1041,8 +1038,6 @@ impl SqliteDb {
 		self.close().await
 	}
 
-	
-
 	pub fn take_last_kv_error(&self) -> Option<String> {
 		if self.backend != SqliteBackend::LocalNative {
 			return None;
@@ -1436,6 +1431,15 @@ impl SqliteDb {
 	}
 
 	fn remote_sqlite_error_response(&self, error: protocol::SqliteErrorResponse) -> anyhow::Error {
+		if let Some(retry_after_ms) =
+			sqlite_types::storage_overload_retry_after_ms(&error.group, &error.code, &error.message)
+		{
+			return SqliteRuntimeError::StorageOverloaded {
+				retry_after_ms,
+				message: error.message.to_string(),
+			}
+			.build();
+		}
 		if is_head_fence_mismatch_response(&error) {
 			if let Ok(config) = self.runtime_config() {
 				report_sqlite_worker_fatal(
@@ -1897,5 +1901,3 @@ fn json_type_name(value: &JsonValue) -> &'static str {
 		JsonValue::Object(_) => "object",
 	}
 }
-
-

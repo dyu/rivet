@@ -290,8 +290,6 @@ impl LoadedVolume {
 	}
 }
 
-
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Operation {
 	/// One bounded alarm IO or callback attempt, including an immutable delayed retry.
@@ -1386,8 +1384,6 @@ impl SlowStoreWarning {
 	}
 }
 
-
-
 /// The metric label of a store operation, the operations whose deadline
 /// `store_operation_slow` handles.
 fn store_operation_name(operation: &Operation) -> &'static str {
@@ -1466,6 +1462,12 @@ pub(crate) fn fence(state: &mut MaintainerState, effects: &mut Effects) {
 	crate::metrics::TABLET_MAINTAINER_FENCES
 		.with_label_values(&[site])
 		.inc();
+	revoke_lifetime(state, effects);
+}
+
+/// Withdraws this lifetime's authority and cancels its work before closing the cold store.
+/// Graceful drains share the same cleanup without reporting an unexpected fence.
+pub(super) fn revoke_lifetime(state: &mut MaintainerState, effects: &mut Effects) {
 	state.phase = MaintainerPhase::Fenced;
 	stop::cancel(state, effects);
 	for key in state.filesystem.volumes.keys() {

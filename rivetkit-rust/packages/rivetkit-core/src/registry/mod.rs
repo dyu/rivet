@@ -403,8 +403,6 @@ fn resolve_engine_spawn(
 )]
 struct EngineSpawnEndpointConflict;
 
-
-
 #[derive(Debug, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct HttpQueueSendRequestJson {
@@ -727,73 +725,8 @@ impl CoreRegistry {
 				handle.wait_stopped().await;
 				return;
 			}
-			if manage_engine {
-				// Remove the old host from the engine's active pool before sleeping
-				// actors. Otherwise a request racing the stopped report can start the
-				// next generation on this host just before it exits. Keep the socket
-				// open until the stopped reports have been acknowledged.
-				if !handle.mark_stopping().await {
-					tracing::warn!("could not mark local development envoy as stopping");
-				}
-				// A local dev reload replaces this host while keeping its engine. Ask
-				// each running actor to sleep so the engine can receive its stopped
-				// report and wake it on the new host.
-				let mut actors = Vec::new();
-				dispatcher
-					.actor_instances
-					.iter_async(|actor_id, state| {
-						if let Some(instance) = state.active_instance() {
-							actors.push((actor_id.clone(), instance.generation));
-						}
-						true
-					})
-					.await;
-				let actor_count = actors.len();
-				tracing::info!(
-					actors = actor_count,
-					"sleeping local development actors for shutdown"
-				);
-				for (actor_id, generation) in actors {
-					handle.sleep_actor(actor_id, Some(generation), None);
-				}
-				if actor_count > 0 {
-					// A stopped report sent just before closing the socket may not
-					// reach the engine. Wait for its acknowledgement before exiting.
-					let acknowledged = timeout(Duration::from_secs(3), async {
-						handle.wait_actors_drained().await;
-						handle.wait_for_events_acked().await
-					})
-					.await;
-					if !matches!(acknowledged, Ok(true)) {
-						tracing::warn!(
-							"local development actor stops were not acknowledged before shutdown"
-						);
-					}
-				}
-			}
-
-			// TODO: Move into envoy-client since timing out has to do with protocol compliance
-			// Read threshold from protocol metadata, fall back to 30 min
-			let stop_threshold = handle
-				.get_protocol_metadata()
-				.await
-				.map(|x| x.actor_stop_threshold)
-				.unwrap_or(30 * 60 * 1000);
-			// Bounded drain. If envoy cannot reach the engine (reconnect loop stuck),
-			// we fall back to immediate `Stop` rather than hanging indefinitely.
-			// The outer host (TS signal handler / Rust binary) is the backstop.
-			match timeout(
-				Duration::from_millis(stop_threshold as u64),
-				handle.shutdown_and_wait(false),
-			)
-			.await
-			{
-				Ok(()) => {}
-				Err(_) => {
-					tracing::warn!("envoy shutdown drain exceeded timeout; forcing immediate stop");
-					handle.shutdown(true);
-					handle.wait_stopped().await;
-				}
+			if !handle.shutdown_gracefully().await {
+				tracing::warn!("node shutdown ended without acknowledgement of every actor stop");
 			}
 		};
 		#[cfg(feature = "native-runtime")]
@@ -932,7 +865,6 @@ impl RegistryDispatcher {
 		// Test-only seam: lets a test hold a generation in the "starting" window so it
 		// can deterministically deliver a stop for a previous generation that parks
 		// under the actor id and gets consumed by this startup.
-		
 		let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel();
 		let (dispatch_tx, dispatch_rx) = mpsc::unbounded_channel();
 		let (lifecycle_events_tx, lifecycle_events_rx) = mpsc::unbounded_channel();
@@ -1299,8 +1231,6 @@ impl RegistryDispatcher {
 				TransitionResult::Vacant => {}
 			}
 
-			
-
 			// No instance is registered, so park the stop for the next start of this
 			// actor id. A start publishes its instance before it drains this map, so
 			// if one drained the map before this insert, its instance is visible now
@@ -1516,7 +1446,5 @@ fn map_envoy_stop_reason(reason: &protocol::StopActorReason) -> ShutdownKind {
 
 // Test shim keeps moved tests in crate-root tests/ with private-module access.
 
-
 // Test-only hooks used by the moved registry tests to deterministically drive the
 // generation-stop race. Gated behind `cfg(test)` so there is no production impact.
-

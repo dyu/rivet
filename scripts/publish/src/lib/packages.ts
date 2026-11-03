@@ -44,9 +44,6 @@ export interface DiscoverPackagesOptions {
  */
 export const EXCLUDED = new Set<string>([
 	// Serverless is disabled for v3; retain the package sources for later.
-	"@rivetkit/cloudflare-workers",
-	"@rivetkit/supabase",
-	"@rivetkit/next-js",
 	"@rivetkit/shared-data",
 	"@rivetkit/engine-frontend",
 	"@rivetkit/sqlite-native",
@@ -80,6 +77,10 @@ export const META_PACKAGES: readonly MetaPackageSpec[] = [
 	{
 		meta: "@rivetkit/engine-cli",
 		platformPrefix: "@rivetkit/engine-cli-",
+	},
+	{
+		meta: "@rivetkit/cli",
+		platformPrefix: "@rivetkit/cli-",
 	},
 ];
 
@@ -151,9 +152,11 @@ export function discoverPackages(
 	//    resolves at install time.
 	//    - rivetkit-napi: the N-API addon (.node files)
 	//    - engine-cli: the rivet-engine binary
+	//    - cli: the rivet CLI binary plus bundled rivet-engine
 	for (const metaRelDir of [
 		"rivetkit-typescript/packages/rivetkit-napi/npm",
 		"rivetkit-typescript/packages/engine-cli/npm",
+		"rivetkit-typescript/packages/cli/npm",
 	]) {
 		const npmDir = join(repoRoot, metaRelDir);
 		if (!existsSync(npmDir)) continue;
@@ -238,6 +241,7 @@ export function assertDiscoverySanity(
 		required.push("rivetkit", "@rivetkit/react", "@rivetkit/rivetkit-napi");
 	}
 	if (inScope("engine")) required.push("@rivetkit/engine-cli");
+	if (inScope("cli")) required.push("@rivetkit/cli");
 	const missing = required.filter((r) => !byName.has(r));
 	if (missing.length > 0) {
 		throw new Error(

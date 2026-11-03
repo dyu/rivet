@@ -28,8 +28,6 @@ use std::{
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
-
-
 /// Implementations check current singleton and worker lease evidence with a fresh clock.
 pub trait CoordinatorAuthority: Send + Sync + 'static {
 	fn permits(&self) -> bool;
@@ -247,6 +245,7 @@ impl Coordinator {
 			Some(settings),
 			watch::channel(true).1,
 			super::state::DEFAULT_LEARNING_DEADLINE_MS,
+			0,
 		)
 	}
 
@@ -262,9 +261,11 @@ impl Coordinator {
 		settings: Option<super::state::balancing::Settings>,
 		balancing_enabled: watch::Receiver<bool>,
 		learning_deadline_ms: u64,
+		manifest_write_interval_ms: u64,
 	) -> Self {
 		let mut state = State::default();
 		state.learning_deadline_ms = learning_deadline_ms;
+		state.manifest_write_interval_ms = manifest_write_interval_ms;
 		state.balancing = match (&stop_transport, settings) {
 			(Some(_), Some(settings)) => Some(
 				super::state::balancing::Balancing::new(settings)
@@ -944,6 +945,7 @@ pub struct TabletCoordinatorService {
 	/// The dynamic switch for the configured balancer, followed by every tenure.
 	balancing_enabled: watch::Receiver<bool>,
 	learning_deadline_ms: u64,
+	manifest_write_interval_ms: u64,
 	stop_transport: Option<Arc<dyn StopTransport>>,
 	pub env: Arc<dyn Env>,
 	pub store: Arc<dyn ObjectStore>,
@@ -952,6 +954,12 @@ pub struct TabletCoordinatorService {
 }
 
 impl TabletCoordinatorService {
+	/// Spaces manifest mutations for backends with a per-object write limit. The core
+	/// owns the wait, and the executor still checks current authority when dispatching.
+	pub fn with_manifest_write_interval_ms(mut self, interval_ms: u64) -> Self {
+		self.manifest_write_interval_ms = interval_ms;
+		self
+	}
 	pub fn with_balancing(mut self, settings: Option<super::state::balancing::Settings>) -> Self {
 		self.settings = settings;
 		self
@@ -974,6 +982,7 @@ impl TabletCoordinatorService {
 			settings: Some(Default::default()),
 			balancing_enabled: watch::channel(true).1,
 			learning_deadline_ms: super::state::DEFAULT_LEARNING_DEADLINE_MS,
+			manifest_write_interval_ms: 0,
 			env,
 			store,
 			active: watch::channel(None).0,
@@ -994,6 +1003,7 @@ impl SingletonServices for TabletCoordinatorService {
 			self.settings.clone(),
 			self.balancing_enabled.clone(),
 			self.learning_deadline_ms,
+			self.manifest_write_interval_ms,
 		);
 		self.active.send_replace(Some(coordinator.client.clone()));
 		*self.coordinator.lock().await = Some(coordinator);
