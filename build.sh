@@ -20,4 +20,18 @@ fi
 # change pwd
 cd $SCRIPT_DIR
 
-cargo build --release --features sqlite-local $@
+REL_BIN_DIR='target/bin'
+
+cargo_build() {
+  OUT_DIR="$1"
+  shift
+  rm -rf target/release && \
+  cargo build --release $@ && \
+  mkdir -p $OUT_DIR && \
+  cp target/release/rivet $OUT_DIR && \
+  cp target/release/rivet-engine $OUT_DIR
+}
+
+cargo_build $REL_BIN_DIR/sqlite-local --features sqlite-local $@ && \
+cargo_build $REL_BIN_DIR/default $@ && \
+du -sh $REL_BIN_DIR/sqlite-local/* $REL_BIN_DIR/default/*
